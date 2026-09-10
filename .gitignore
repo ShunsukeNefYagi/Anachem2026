@@ -1,0 +1,14 @@
+# Generated analysis output. Everything here is reproducible from data/ + analysis/.
+results/*
+!results/.gitkeep
+
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+.venv/
+venv/
+env/
+
+.DS_Store
+Thumbs.db
