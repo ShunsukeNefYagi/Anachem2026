@@ -202,9 +202,16 @@ python3 s3e_decompose.py             # split into instrument (<30 min) and sampl
 python3 s4_track.py raw              # link, uncorrected coordinates
 python3 s4_track.py vib              # link, instrument vibration removed   ← used downstream
 python3 s4_track.py full             # link, all common motion removed
+python3 s4_track.py common           # same correction as full, named for s6   ← s6 requires this
 python3 s5_compare.py                # compare the three coordinate systems
 python3 s6_common_drift_analysis.py  # full-band common-displacement removal, evaluated separately
 ```
+
+`s6_common_drift_analysis.py` reads `tracks_common.csv` and
+`track_summary_common.csv`, so it fails with `FileNotFoundError` if the `common`
+variant was not linked. `common` applies the same correction as `full`; it is a
+separate output name so that `s5_compare.py`'s three-way comparison and `s6`'s
+analysis do not overwrite each other's files.
 
 `s4_track.py` also accepts `--bootstrap` to add the linking-uncertainty resampling
 (slower).
