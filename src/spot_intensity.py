@@ -19,7 +19,8 @@ import os
 import numpy as np
 import pandas as pd
 
-from linking import PIXEL_SIZE, parse_trackmate_xml
+from linking import parse_trackmate_xml
+from units import PIXEL_SIZE
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, 'results', 'linking')

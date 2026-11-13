@@ -1,8 +1,6 @@
 """Detections -> linking -> particle A trajectory -> DC-MSS.
 
     python run_pipeline.py              # whole pipeline (~5 s)
-    python run_pipeline.py --trackmate  # also run DC-MSS on the TrackMate-linked
-                                        # track of particle A (data/particleA_trackmate.csv)
 
 Outputs (results/):
     linking/spots.csv, linking/tracks.csv     all detections / all linked tracks
@@ -59,7 +57,7 @@ def run_dcmss(pos, tag, prep):
     rows, res = DA.analyse(pos)
     df = pd.DataFrame(rows)
     df.to_csv(os.path.join(out, f'{tag}_segments.csv'), index=False, float_format='%.17g')
-    stages = dict(config=DA.CONFIG.as_dict(), preprocessing=prep,
+    stages = dict(units=DA.STAGE_UNITS, config=DA.CONFIG.as_dict(), preprocessing=prep,
                   step1=dict(n_initial_peaks=res['step1']['n_initial_peaks'],
                              n_ks_merged=res['step1']['n_ks_merged'],
                              bounds=res['bounds']),
@@ -75,11 +73,9 @@ def run_dcmss(pos, tag, prep):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--trackmate', action='store_true',
-                    help='also analyse data/particleA_trackmate.csv')
-    a = ap.parse_args(argv)
+    argparse.ArgumentParser(description=__doc__,
+                            formatter_class=argparse.RawDescriptionHelpFormatter
+                            ).parse_args(argv)
 
     print('== Linking ==')
     _, tracks = run_linking(os.path.join(RES, 'linking'))
@@ -89,15 +85,8 @@ def main(argv=None):
           f'frames {part.FRAME.min()}-{part.FRAME.max()}, '
           f'mean link confidence {part.LINK_CONFIDENCE.mean():.3f}')
 
-    data, prep = load_tracks(os.path.join(RES, 'particleA_track.csv'), 'linked')
-    results = {'linked': run_dcmss(data[tid]['pos'], 'particleA', prep[tid])}
-
-    if a.trackmate:
-        data, prep = load_tracks(os.path.join(ROOT, 'data', 'particleA_trackmate.csv'),
-                                 'trackmate')
-        (k,) = data
-        results['trackmate'] = run_dcmss(data[k]['pos'], 'particleA_trackmate', prep[k])
-    return results
+    data, prep = load_tracks(os.path.join(RES, 'particleA_track.csv'))
+    return run_dcmss(data[tid]['pos'], 'particleA', prep[tid])
 
 
 if __name__ == '__main__':

@@ -1,26 +1,26 @@
 """
-MSS (Moment Scaling Spectrum) 解析と DC-MSS (divide-and-conquer MSS) の実装。
+Moment Scaling Spectrum (MSS) analysis and divide-and-conquer MSS (DC-MSS).
 
-参考:
+Reference:
   Vega AR, Freeman SA, Grinstein S, Jaqaman K.
   "Multistep Track Segmentation and Motion Classification for Transient Mobility
    Analysis", Biophysical Journal 114, 1018-1025 (2018).
-  および Supporting Material (Note S1, Fig. S1, S2, S4).
+  and its Supporting Material (Note S1, Fig. S1, S2, S4).
 
-単位系: 長さ = pixel, 時間 = frame (本データでは 1 frame = 1 min)
+Units: length = pixel, time = frame (1 frame = 1 min for our data).
 """
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
 from scipy.stats import ks_2samp
 
 MOMENT_ORDERS = np.arange(0, 7)          # 0th - 6th moment (Note S1, step 1)
-MAX_LAG_CAP = 30                         # 120 frame 超のトラックでは lag を 30 に制限
+MAX_LAG_CAP = 30                         # lag capped at 30 (binds for tracks > 120 frames)
 LAG_FRAC = 4                             # tau_max = segment duration / LAG_FRAC
-MIN_SEG = 20                             # MSS 分類が可能な最小セグメント長 [frames]
-WINDOW = 11                              # Initial Track Segmentation の rolling window
-GAUSS_SIGMA = 2.0                        # MPD(t) 平滑化の Gaussian kernel [frames]
-PEAK_PCTL = 95.0                         # DSMPD ピークの上位 5%
-KS_ALPHA = 0.05                          # 隣接セグメント統合の KS 検定有意水準
+MIN_SEG = 20                             # shortest segment that MSS classifies [frames]
+WINDOW = 11                              # rolling window of the initial track segmentation
+GAUSS_SIGMA = 2.0                        # Gaussian kernel for smoothing MPD(t) [frames]
+PEAK_PCTL = 95.0                         # keep DSMPD peaks in the top 5%
+KS_ALPHA = 0.05                          # KS-test significance level for merging neighbours
 
 CLASS_NAMES = {-1: 'unclassified', 0: 'immobile', 1: 'confined',
                2: 'free', 3: 'directed'}
@@ -29,19 +29,19 @@ CLASS_COLORS = {-1: '#000000', 0: '#8B5A2B', 1: '#1f4fd8',
 
 
 # --------------------------------------------------------------------------
-# MSS 解析
+# MSS analysis
 # --------------------------------------------------------------------------
 def mss_analysis(pos, lag_cap=None, lag_frac=None):
-    """バッチ版 MSS 解析。
+    """Batched MSS analysis.
 
     pos      : ndarray, shape (n_tracks, N, 2)
-    lag_cap  : 時間ラグの上限 (既定 MAX_LAG_CAP=30)。None で既定値。
-    lag_frac : tau_max = N / lag_frac (既定 LAG_FRAC=4)。None で既定値。
+    lag_cap  : upper limit of the time lag (None -> MAX_LAG_CAP = 30).
+    lag_frac : tau_max = N / lag_frac (None -> LAG_FRAC = 4).
     returns dict with
-        mss_slope : (n_tracks,)   MSS 曲線 alpha_m vs m の傾き
-        alphas    : (n_tracks, 7) 各モーメント次数のスケーリング指数
-        gen_D     : (n_tracks, 7) 一般化拡散係数 D_m
-        (D_2 = gen_D[:,2] が MSD 由来の拡散係数)
+        mss_slope : (n_tracks,)   slope of the MSS curve alpha_m vs m
+        alphas    : (n_tracks, 7) scaling exponent of each moment order
+        gen_D     : (n_tracks, 7) generalised diffusion coefficient D_m
+        (D_2 = gen_D[:,2] is the MSD-based diffusion coefficient)
     """
     pos = np.asarray(pos, dtype=np.float64)
     if pos.ndim == 2:
@@ -70,7 +70,7 @@ def mss_analysis(pos, lag_cap=None, lag_frac=None):
     intercept = log_mu.mean(axis=2) - alphas * x.mean()
     gen_D = np.exp(intercept)
 
-    # MSS 曲線: alpha_m vs m の直線回帰 (m = 0..6, 切片あり)
+    # MSS curve: linear regression of alpha_m on m (m = 0..6, with intercept)
     m = MOMENT_ORDERS.astype(float)
     mc = m - m.mean()
     mss_slope = (alphas * mc).sum(axis=1) / (mc ** 2).sum()
@@ -79,7 +79,7 @@ def mss_analysis(pos, lag_cap=None, lag_frac=None):
 
 
 def msd_curve(pos, max_lag=None):
-    """時間平均 MSD (2次モーメント)。pos: (N,2)"""
+    """Time-averaged MSD (second moment).  pos: (N,2)"""
     pos = np.asarray(pos, float)
     N = len(pos)
     if max_lag is None:
@@ -92,8 +92,8 @@ def msd_curve(pos, max_lag=None):
 
 
 def fit_D_sigma(pos, n_lag=5):
-    """MSD(tau) = 4 D tau + 4 sigma_p^2 の線形フィット。
-    D [px^2/frame], sigma_p [px] (負の切片なら sigma_p = nan)。"""
+    """Linear fit of MSD(tau) = 4 D tau + 4 sigma_p^2.
+    D [px^2/frame], sigma_p [px] (sigma_p = nan if the intercept is negative)."""
     taus, msd, _ = msd_curve(pos, max_lag=min(n_lag, max(2, len(pos) // 4)))
     A = np.vstack([taus, np.ones_like(taus, dtype=float)]).T
     coef, *_ = np.linalg.lstsq(A, msd, rcond=None)
@@ -104,9 +104,10 @@ def fit_D_sigma(pos, n_lag=5):
 
 
 def confinement_radius(pos):
-    """位置分散から閉じ込め半径を推定。
-    2次元一様円板 (半径 R) では共分散行列の固有値平均 = R^2/4 なので
-    R = sqrt((d+2) * mean(eig))  (d=2)。u-track と同じ定義。"""
+    """Confinement radius estimated from the positional variance.
+    For a uniform 2-D disc of radius R the mean eigenvalue of the covariance
+    matrix is R^2/4, so R = sqrt((d+2) * mean(eig)) with d = 2 (the u-track
+    definition)."""
     pos = np.asarray(pos, float)
     if len(pos) < 3:
         return np.nan
@@ -116,7 +117,7 @@ def confinement_radius(pos):
 
 
 # --------------------------------------------------------------------------
-# シミュレーション (閾値導出用)
+# Simulations (for deriving the thresholds)
 # --------------------------------------------------------------------------
 def sim_immobile(n, N, sigma_p=1.0, rng=None):
     rng = rng or np.random.default_rng()
@@ -131,8 +132,8 @@ def sim_free(n, N, D=1.0, dt=1.0, rng=None):
 
 
 def sim_confined(n, N, D=1.0, dt=1.0, CE=0.7, rng=None):
-    """閉じ込め拡散。CE = sqrt(4 D dt) / R (confinement extent)。
-    境界は半径 R の円で、はみ出した分は径方向に反射させる。"""
+    """Confined diffusion.  CE = sqrt(4 D dt) / R (confinement extent).
+    The boundary is a circle of radius R; overshoots are reflected radially."""
     rng = rng or np.random.default_rng()
     R = np.sqrt(4 * D * dt) / CE
     s = np.sqrt(2 * D * dt)
@@ -146,7 +147,7 @@ def sim_confined(n, N, D=1.0, dt=1.0, CE=0.7, rng=None):
         if out.any():
             scale = (2 * R - r[out]) / r[out]
             nxt[out] = nxt[out] * scale[:, None]
-            # 極端な跳ね返り(2R超)は円内に丸める
+            # an extreme overshoot (beyond 2R) is clipped back onto the circle
             r2 = np.linalg.norm(nxt, axis=1)
             bad = r2 > R
             if bad.any():
@@ -157,7 +158,7 @@ def sim_confined(n, N, D=1.0, dt=1.0, CE=0.7, rng=None):
 
 
 def sim_directed(n, N, D=1.0, dt=1.0, DE=1.0, rng=None):
-    """ドリフト付き拡散。DE = v dt / sqrt(4 D dt) (drift extent)。"""
+    """Diffusion with drift.  DE = v dt / sqrt(4 D dt) (drift extent)."""
     rng = rng or np.random.default_rng()
     v = DE * np.sqrt(4 * D * dt) / dt
     theta = rng.uniform(0, 2 * np.pi, size=(n, 1))
@@ -168,19 +169,15 @@ def sim_directed(n, N, D=1.0, dt=1.0, DE=1.0, rng=None):
     return np.cumsum(step, axis=1)
 
 
-SIMULATORS = {0: sim_immobile, 1: sim_confined, 2: sim_free, 3: sim_directed}
-
-
 # --------------------------------------------------------------------------
-# 閾値テーブル
+# Threshold table
 # --------------------------------------------------------------------------
 class MSSThresholds:
-    """継続時間依存の MSS slope 分類閾値 + 誤分類確率計算。
+    """Duration-dependent MSS-slope thresholds and misclassification probabilities.
 
-    npz には
+    The npz file holds
       durations : (nd,)
-      slopes    : (nd, 4, nsim)  各 duration / class の MSS slope サンプル
-    が入っている。
+      slopes    : (nd, 4, nsim)  MSS-slope samples per duration / class
     """
 
     def __init__(self, path):
@@ -189,10 +186,10 @@ class MSSThresholds:
         self.lag_cap = int(z['lag_cap']) if 'lag_cap' in z else MAX_LAG_CAP
         self.lag_frac = int(z['lag_frac']) if 'lag_frac' in z else LAG_FRAC
         self.meta = dict(z['meta'].item()) if 'meta' in z else {}
-        self.slopes = np.sort(z['slopes'], axis=2)   # 昇順ソート済み
+        self.slopes = np.sort(z['slopes'], axis=2)   # sorted ascending
         self.nsim = self.slopes.shape[2]
-        # tau_max = N/lag_frac が 2 未満になる duration は MSS 回帰が定義できず
-        # NaN になる。そこを除外し、分類可能な最小長を記録する。
+        # Durations with tau_max = N/lag_frac < 2 have no MSS regression and
+        # give NaN; drop them and record the shortest classifiable length.
         ok = np.isfinite(self.slopes).all(axis=(1, 2))
         if not ok.all():
             self.durations = self.durations[ok]
@@ -200,11 +197,12 @@ class MSSThresholds:
         self.min_classifiable = int(self.durations[0])
         self.thr = self._build_thresholds()          # (nd, 3): imm|conf, conf|free, free|dir
 
-    # -- 閾値導出 (Note S1) ------------------------------------------------
+    # -- threshold derivation (Note S1) ------------------------------------
     @staticmethod
     def _balanced_threshold(lower, upper):
-        """lower(低移動度クラス)と upper(高移動度クラス)の分布から
-        P(lower > t) = P(upper < t) となる t と、その共通誤分類確率を返す。"""
+        """From the lower- and higher-mobility class distributions, return the
+        t with P(lower > t) = P(upper < t) and that shared misclassification
+        probability."""
         cand = np.unique(np.concatenate([lower, upper]))
         p_lo = 1.0 - np.searchsorted(lower, cand, side='right') / len(lower)
         p_up = np.searchsorted(upper, cand, side='left') / len(upper)
@@ -219,14 +217,14 @@ class MSSThresholds:
         for i in range(nd):
             imm, con, fre, dir_ = (self.slopes[i, c] for c in range(4))
             pairs = [(imm, con), (con, fre), (fre, dir_)]
-            # Regime 2 のフォールバック値 (誤分類確率 0.01 基準)
-            regime2 = [np.quantile(imm, 0.99),    # immobile を confined と誤る確率 0.01
-                       np.quantile(fre, 0.01),    # free を confined と誤る確率 0.01
-                       np.quantile(fre, 0.99)]    # free を directed と誤る確率 0.01
+            # Regime-2 fallback values (misclassification probability 0.01)
+            regime2 = [np.quantile(imm, 0.99),    # P(immobile called confined) = 0.01
+                       np.quantile(fre, 0.01),    # P(free called confined) = 0.01
+                       np.quantile(fre, 0.99)]    # P(free called directed) = 0.01
             for k, (lo, up) in enumerate(pairs):
                 t, p = self._balanced_threshold(lo, up)
                 thr[i, k] = t if p > 0.01 else regime2[k]
-            # 単調性を保証
+            # enforce monotonic thresholds
             thr[i] = np.maximum.accumulate(thr[i])
         return thr
 
@@ -243,10 +241,10 @@ class MSSThresholds:
         t = self.thresholds_at(dur)
         return int(np.searchsorted(t, mss_slope, side='right'))
 
-    # -- 誤分類確率 (Fig. S4b) --------------------------------------------
+    # -- misclassification probability (Fig. S4b) --------------------------
     def _cdf(self, cls, dur, s):
-        """duration dur における class cls の MSS slope 分布の CDF を s で評価。
-        duration はグリッド上の近傍2点から線形内挿。"""
+        """CDF at s of the MSS-slope distribution of class cls at duration dur,
+        linearly interpolated between the two nearest grid durations."""
         d = np.clip(dur, self.durations[0], self.durations[-1])
         j = int(np.clip(np.searchsorted(self.durations, d) - 1,
                         0, len(self.durations) - 2))
@@ -257,8 +255,9 @@ class MSSThresholds:
         return (1 - w) * c0 + w * c1
 
     def p_misclass(self, mss_slope, dur, cls):
-        """Fig. S4b 方式: 与えられた slope 値に対し、隣接クラスの分布のうち
-        「そのクラス側に食い込む」裾の面積を誤分類確率とする。"""
+        """As in Fig. S4b: for the given slope, the misclassification probability
+        is the tail area of the neighbouring classes' distributions that extends
+        into this class's range."""
         s = mss_slope
         if cls == 0:
             return self._cdf(1, dur, s)
@@ -275,8 +274,9 @@ class MSSThresholds:
 # DC-MSS
 # --------------------------------------------------------------------------
 def max_pairwise_distance_series(pos, window=WINDOW):
-    """rolling window 内の最大点間距離 MPD(t)。窓の中心フレームに値を割り当て、
-    端は最も近い値で埋めて長さ N の系列にする。"""
+    """Maximum pairwise distance MPD(t) in a rolling window.  Each value is
+    assigned to the window's centre frame, and the ends are padded with the
+    nearest value to give a series of length N."""
     pos = np.asarray(pos, float)
     N = len(pos)
     half = window // 2
@@ -295,7 +295,7 @@ def max_pairwise_distance_series(pos, window=WINDOW):
 def initial_segmentation(pos, window=WINDOW, sigma=GAUSS_SIGMA,
                          peak_pctl=PEAK_PCTL, ks_alpha=KS_ALPHA,
                          min_seg=MIN_SEG, verbose=False):
-    """DC-MSS Step 1。境界インデックス配列 (0 ... N) を返す。"""
+    """DC-MSS step 1.  Returns the array of boundary indices (0 ... N)."""
     N = len(pos)
     mpd = max_pairwise_distance_series(pos, window)
     smpd = gaussian_filter1d(mpd, sigma, mode='nearest')
@@ -304,19 +304,20 @@ def initial_segmentation(pos, window=WINDOW, sigma=GAUSS_SIGMA,
     den = (smpd[1:] + smpd[:-1]) / 2.0
     dsmpd = np.divide(num, den, out=np.zeros_like(num), where=den > 0)
 
-    # 局所極大 かつ 上位 5%
+    # local maxima that are also in the top 5%
     thr = np.percentile(dsmpd, peak_pctl)
     is_peak = np.zeros(len(dsmpd), bool)
     is_peak[1:-1] = (dsmpd[1:-1] >= dsmpd[:-2]) & (dsmpd[1:-1] >= dsmpd[2:])
-    cand = np.where(is_peak & (dsmpd >= thr))[0] + 1        # 切替点フレーム
+    cand = np.where(is_peak & (dsmpd >= thr))[0] + 1        # switch-point frames
 
     bounds = [0] + [int(c) for c in cand] + [N]
     bounds = sorted(set(bounds))
 
-    # 短いセグメント (min_seg-2sigma <= L < min_seg) を min_seg に伸ばす
+    # extend short segments (min_seg-2sigma <= L < min_seg) to min_seg
     bounds = _extend_short_segments(bounds, N, min_seg, sigma)
 
-    # 隣接セグメントの点間距離分布を KS 検定で比較し p>0.05 なら統合
+    # merge neighbours whose pairwise-distance distributions a KS test cannot
+    # tell apart (p > ks_alpha)
     bounds, n_merged = _ks_merge(pos, bounds, ks_alpha)
 
     info = dict(mpd=mpd, smpd=smpd, dsmpd=dsmpd, thr=thr,
@@ -328,8 +329,8 @@ def initial_segmentation(pos, window=WINDOW, sigma=GAUSS_SIGMA,
 
 
 def _extend_short_segments(bounds, N, min_seg=MIN_SEG, sigma=GAUSS_SIGMA):
-    """min_seg-2*sigma <= L < min_seg のセグメントを min_seg まで伸ばす。
-    隣接セグメントが min_seg 未満になる場合は伸ばさない。"""
+    """Extend segments with min_seg-2*sigma <= L < min_seg to min_seg, unless
+    that would leave the neighbouring segment shorter than min_seg."""
     b = list(bounds)
     lo = int(min_seg - 2 * sigma)
     changed = True
@@ -339,12 +340,12 @@ def _extend_short_segments(bounds, N, min_seg=MIN_SEG, sigma=GAUSS_SIGMA):
         for i, L in enumerate(lens):
             if lo <= L < min_seg:
                 need = min_seg - L
-                # 右隣を削る
+                # take frames from the right neighbour
                 if i + 2 < len(b) and (b[i + 2] - b[i + 1]) - need >= min_seg:
                     b[i + 1] += need
                     changed = True
                     break
-                # 左隣を削る
+                # take frames from the left neighbour
                 if i - 1 >= 0 and (b[i] - b[i - 1]) - need >= min_seg:
                     b[i] -= need
                     changed = True
@@ -384,7 +385,7 @@ def _ks_merge(pos, bounds, alpha=KS_ALPHA):
 
 
 def classify_segments(pos, bounds, thresholds, min_seg=MIN_SEG):
-    """DC-MSS Step 2。"""
+    """DC-MSS step 2: classify each segment."""
     cap = getattr(thresholds, 'lag_cap', None)
     frac = getattr(thresholds, 'lag_frac', None)
     segs = []
@@ -413,7 +414,7 @@ def _reclassify(pos, i0, i1, thresholds, min_seg=MIN_SEG):
 
 
 def final_segmentation(pos, segs, thresholds, max_iter=200, min_seg=MIN_SEG):
-    """DC-MSS Step 3: 隣接セグメントの統合判定。"""
+    """DC-MSS step 3: decide whether to merge neighbouring segments."""
     segs = [dict(s) for s in segs]
     for _ in range(max_iter):
         merged = False
@@ -430,7 +431,8 @@ def final_segmentation(pos, segs, thresholds, max_iter=200, min_seg=MIN_SEG):
             ref = a['cls'] if a['cls'] != -1 else b['cls']
             accept = False
             if new_cls <= ref:
-                # 同じか低移動度のクラス -> 受理 (長く観るほど閉じ込めが見える)
+                # same or lower-mobility class -> accept (confinement shows up
+                # more clearly in longer observations)
                 accept = True
             else:
                 p_new = thresholds.p_misclass(new_s, i1 - i0, new_cls)
@@ -455,11 +457,11 @@ def final_segmentation(pos, segs, thresholds, max_iter=200, min_seg=MIN_SEG):
 
 
 class DCMSSConfig:
-    """DC-MSS の調整可能パラメータ。既定値は Vega et al. 2018 の論文値。
+    """Tunable DC-MSS parameters.  Defaults are the values of Vega et al. 2018.
 
-    論文の実験は 33 Hz 撮像なので、frame 数で定義されたパラメータは
-    そのままでは撮像間隔の違う実験に転用できない。本クラスはそれらを
-    明示的に外に出し、シミュレーションによる再較正を可能にする。
+    The paper imaged at 33 Hz, so parameters defined in frames cannot be carried
+    over unchanged to experiments with a different frame interval.  This class
+    exposes them explicitly so that they can be recalibrated by simulation.
     """
 
     def __init__(self, window=WINDOW, sigma=GAUSS_SIGMA, peak_pctl=PEAK_PCTL,
@@ -484,18 +486,15 @@ class DCMSSConfig:
         return f'DCMSSConfig({self.name})'
 
 
-PAPER_CFG = DCMSSConfig(name='paper')
-
-
-def dc_mss(pos, thresholds, cfg=None, verbose=False):
-    """DC-MSS 全体。pos: (N,2)"""
-    cfg = cfg or PAPER_CFG
+def dc_mss(pos, thresholds, cfg, verbose=False):
+    """Full DC-MSS pipeline.  pos: (N,2), cfg: DCMSSConfig (no default, so that the
+    33 Hz defaults of Vega et al. are never used by accident)."""
     bounds, info = initial_segmentation(
         pos, window=cfg.window, sigma=cfg.sigma, peak_pctl=cfg.peak_pctl,
         ks_alpha=cfg.ks_alpha, min_seg=cfg.min_seg, verbose=verbose)
     segs0 = classify_segments(pos, bounds, thresholds, cfg.min_seg)
     segs = final_segmentation(pos, segs0, thresholds, min_seg=cfg.min_seg)
-    # セグメントごとの付随量
+    # per-segment derived quantities
     for s in segs:
         sub = pos[s['start']:s['end']]
         s['conf_radius'] = confinement_radius(sub)
@@ -513,50 +512,11 @@ def dc_mss(pos, thresholds, cfg=None, verbose=False):
 
 
 # --------------------------------------------------------------------------
-# 局在誤差付きシミュレーション
+# Simulations with localization error
 # --------------------------------------------------------------------------
 def add_localization_noise(pos, sigma_p, rng=None):
-    """各観測位置に独立な Gaussian ノイズ N(0, sigma_p) を加える。"""
+    """Add independent Gaussian noise N(0, sigma_p) to every observed position."""
     if sigma_p <= 0:
         return pos
     rng = rng or np.random.default_rng()
     return pos + rng.normal(0.0, sigma_p, size=pos.shape)
-
-
-def sigma_from_ratio(ratio, D, dt=1.0):
-    """sigma_p / Sigma_D = ratio となる sigma_p を返す。
-    Sigma_D = sqrt(2 D dt) は 1 次元ステップサイズの標準偏差。"""
-    return ratio * np.sqrt(2 * D * dt)
-
-
-def sim_switching(n, durations, classes, D=1.0, dt=1.0, CE=0.7, DE=1.0,
-                  sigma_p=0.0, rng=None):
-    """運動形態が切り替わる軌跡を生成する。
-
-    durations : 各区間の長さのリスト
-    classes   : 各区間の運動クラス (0=immobile,1=confined,2=free,3=directed)
-    戻り値    : (pos, switch_points)  pos は (n, sum(durations), 2)
-    """
-    rng = rng or np.random.default_rng()
-    N = int(sum(durations))
-    pos = np.zeros((n, N, 2))
-    cur = np.zeros((n, 2))
-    i = 0
-    switches = []
-    for L, c in zip(durations, classes):
-        L = int(L)
-        if c == 0:
-            # immobile: 真の位置は動かない。見かけの揺らぎは局在誤差のみ。
-            sub = np.repeat(cur[:, None, :], L, axis=1)
-        else:
-            sub = SIMULATORS[c](n, L, D=D, dt=dt, rng=rng, **(
-                {'CE': CE} if c == 1 else {'DE': DE} if c == 3 else {}))
-            sub = sub - sub[:, :1, :] + cur[:, None, :]
-        pos[:, i:i + L, :] = sub
-        cur = sub[:, -1, :]
-        i += L
-        if i < N:
-            switches.append(i)
-    if sigma_p > 0:
-        pos = add_localization_noise(pos, sigma_p, rng)
-    return pos, switches

@@ -10,7 +10,8 @@ Input
 Cost of linking the last spot of a track to a candidate spot in the next frame
     C = w_d * d / d_max + w_i * (r - 1) / (R_max - 1)
     d = displacement [um], r = max(I1, I2) / min(I1, I2) (intensity ratio)
-Candidates with d > d_max * (1 + gamma * gap) or r > R_max are not allowed.
+Candidates with d > d_max * (1 + gamma * gap) or r > R_max are not allowed, nor are
+links involving a non-positive intensity (r undefined; none occur in the shipped data).
 Tracks are served in order of their current number of detections (longer tracks
 first), each takes its lowest-cost candidate (greedy).  A track may skip up to
 G_max frames; unmatched spots start new tracks.  Tracks with fewer than
@@ -29,13 +30,12 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import pandas as pd
 
+from units import PIXEL_SIZE   # um / px
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 XML = os.path.join(ROOT, 'data', 'laser1traj.xml')
 INTENSITY_CSV = os.path.join(ROOT, 'data', 'spot_intensity_square_roi.csv')
 OUT = os.path.join(ROOT, 'results', 'linking')
-
-PIXEL_SIZE = 10.0 / 222.0     # um / px (222 px = 10 um)
-DT_MIN = 1.0                  # min / frame
 
 # linking parameters
 MAX_DIST_UM = 3.0             # d_max
@@ -134,7 +134,9 @@ def track(df, max_dist=MAX_DIST_UM, max_gap=MAX_GAP,
                 if d > sr:
                     continue
                 a, b = c_int[j], t['last_int']
-                ratio = max(a, b) / (min(a, b) + 1e-9)
+                if min(a, b) <= 0:     # ratio undefined for non-positive intensity
+                    continue
+                ratio = max(a, b) / min(a, b)
                 if ratio > max_int_ratio:
                     continue
                 int_term = 0.0 if np.isinf(max_int_ratio) else \

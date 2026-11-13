@@ -4,23 +4,32 @@ Method: Vega AR, Freeman SA, Grinstein S, Jaqaman K. "Multistep Track Segmentati
 and Motion Classification for Transient Mobility Analysis", Biophys. J. 114,
 1018-1025 (2018).  Implementation: mss_core.py (independent Python implementation).
 
-Conditions used in the paper (recalibrated for 1-min sampling, see README):
+The frame-based parameters differ from the defaults of Vega et al., which were set
+for 33 Hz imaging.  Conditions used in the paper (CONFIG below):
     MPD window 5 positions, Gaussian sigma 2 frames, switch-point percentile 97.5,
     minimum classifiable segment 20 positions, MSS max lag = min(N // 3, 30),
     thresholds from simulations with localization error sigma_p / Sigma_D = 0.14
-    (data/thr_sig0.14_lf3.npz, made by gen_thresholds.py).
+    (data/thr_sig0.14_lf3.npz; gen_thresholds.py explains why the thresholds
+    were regenerated and how).
 """
 import os
 
 import numpy as np
 
 from mss_core import CLASS_NAMES, DCMSSConfig, MSSThresholds, dc_mss, mss_analysis
+from units import DT_MIN, PIXEL_SIZE
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 THRESHOLDS = os.path.join(ROOT, 'data', 'thr_sig0.14_lf3.npz')
 CONFIG = DCMSSConfig(window=5, sigma=2.0, peak_pctl=97.5, min_seg=20,
-                     lag_frac=3, name='paper')
-PX_UM = 10.0 / 222.0          # um / px
+                     lag_frac=3, name='this_study_1min')
+
+# Units of the per-segment values kept in pixels / frames (DC-MSS internals,
+# written to *_stages.json); the segment table converts them to um / min.
+STAGE_UNITS = dict(start='frame', end='frame (exclusive)', len='frame', mss_slope='1',
+                   D='px^2 (generalised D_2, tau counted in frames)',
+                   conf_radius='px', v_net='px/frame', D_lin='px^2/frame',
+                   sigma_p_fit='px')
 
 
 def load_thresholds(path=THRESHOLDS, cfg=CONFIG):
@@ -46,8 +55,12 @@ def analyse(pos, thr=None, cfg=CONFIG):
     """Run DC-MSS on pos (N, 2) [px].  Returns (rows, result).
 
     rows: one dict per final segment; bounds are half-open [start, end_exclusive)
-    frame indices.  gen_D2_px2 is the generalised coefficient of the 2nd moment
-    (mu_2 = D_2 (4 tau)^alpha_2); it is a diffusion coefficient only if alpha_2 = 1.
+    frame indices (1 frame = 1 min).  Lengths are converted to um:
+      gen_D2_um2        generalised coefficient of the 2nd moment,
+                        mu_2 = D_2 (4 tau)^alpha_2 with tau counted in frames;
+                        a diffusion coefficient [um^2/min] only if alpha_2 = 1
+      conf_radius_um    confinement radius
+      v_net_um_per_min  net displacement / elapsed time
     """
     pos = np.asarray(pos, float)
     thr = thr or load_thresholds(cfg=cfg)
@@ -64,8 +77,9 @@ def analyse(pos, thr=None, cfg=CONFIG):
             motion_class=CLASS_NAMES[s['cls']], mss_slope=s['mss_slope'],
             thr_free_directed=t[2], thr_confined_free=t[1], thr_immobile_confined=t[0],
             max_lag=int(m['max_lag']), alpha2=float(m['alphas'][0, 2]),
-            gen_D2_px2=s['D'], conf_radius_px=s['conf_radius'],
-            v_net_um_per_min=s['v_net'] * PX_UM,
+            gen_D2_um2=s['D'] * PIXEL_SIZE ** 2,
+            conf_radius_um=s['conf_radius'] * PIXEL_SIZE,
+            v_net_um_per_min=s['v_net'] * PIXEL_SIZE / DT_MIN,
             straightness=float(np.linalg.norm(sub[-1] - sub[0]) / step.sum()),
             Cu_lag1=direction_autocorrelation(sub, 1)))
     return rows, res
@@ -79,7 +93,7 @@ def plot(pos, rows, path, title=''):
     import matplotlib.pyplot as plt
 
     color = {'directed': '#d62728'}
-    p = np.asarray(pos, float) * PX_UM
+    p = np.asarray(pos, float) * PIXEL_SIZE
     fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(9, 3.8),
                                    gridspec_kw=dict(width_ratios=[1, 1.4]))
     for r in rows:

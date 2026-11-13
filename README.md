@@ -31,7 +31,11 @@ python verify_reproduction.py       # re-run and compare with reference/
 ```
 
 Outputs are written to `results/` (linked tracks, particle A trajectory, DC-MSS
-segments and figure).
+segments and figure). Segment tables report lengths in µm and time in min.
+
+`verify_reproduction.py` is a reproducibility check: it confirms that the code
+regenerates the stored outputs of the original analysis run in `reference/`. It
+does not by itself validate the linking or the DC-MSS classification.
 
 ## Repository layout
 
@@ -40,7 +44,7 @@ run_pipeline.py          detections -> linking -> particle A -> DC-MSS
 verify_reproduction.py   re-runs the pipeline and checks it against reference/
 src/                     linking, MSS / DC-MSS analysis, threshold generation
 data/                    TrackMate detections, spot intensities, MSS threshold table
-reference/               outputs of the original analysis run, for verification
+reference/               published results (linked tracks, particle A segments), for verification
 ```
 
 The raw image stack (2.9 GB) is not included; it is available from the authors on

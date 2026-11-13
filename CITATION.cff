@@ -12,9 +12,9 @@ abstract: >-
   displacement and intensity cost, and segments and classifies the motion of
   the tracked particle by DC-MSS (divide-and-conquer moment scaling spectrum),
   including the Monte-Carlo generation of the classification thresholds and a
-  script that checks the results against the published values.
+  script that checks that the published results are reproduced.
 type: software
-version: 2.0.0
+version: 1.0.0
 date-released: "2026-11-13"
 license: MIT
 repository-code: "https://github.com/ShunsukeNefYagi/Anachem2026"

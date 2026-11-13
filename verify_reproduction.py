@@ -1,20 +1,22 @@
-"""Re-run the pipeline and check it against the results reported in the paper.
+"""Re-run the pipeline and check that it reproduces the original analysis run.
 
     python verify_reproduction.py                      # ~10 s
     python verify_reproduction.py --regen-thresholds   # + rebuild threshold table (~7 min)
     python verify_reproduction.py --tif laser1traj.tif # + recompute spot intensities
 
+These are reproducibility checks: they compare the current output with the stored
+results in reference/, i.e. they confirm that the code and data give the published
+numbers again.  They do not test whether the analysis itself
+(linking, DC-MSS classification) is correct.
+
 Checks
   1. linking      results/linking/tracks.csv == reference/linking_tracks.csv
                   (output of the original linking run, 2026-09-01; all tracks)
-  2. DC-MSS (TrackMate track of particle A, the input of the paper's figure)
-                  == reference/figure3_segment_summary.csv: boundaries, classes,
-                  S_MSS and the other per-segment values
-  3. DC-MSS (particle A from this repository's linking)
-                  boundaries and classes == the paper (0-140 free, 140-374 directed,
-                  374-720 free); S_MSS differences are reported, not required to be 0
-  4. threshold table sha256 (and, optionally, bit-identical regeneration)
-  5. optional: spot intensities recomputed from the raw image stack
+  2. DC-MSS       results/dcmss/particleA_segments.csv
+                  == reference/dcmss_segments_particleA.csv (the paper's result for
+                  particle A): boundaries, classes, S_MSS and every other column
+  3. threshold table sha256 (and, optionally, bit-identical regeneration)
+  4. optional: spot intensities recomputed from the raw image stack
 A summary is written to results/verification.json.
 """
 import argparse
@@ -32,7 +34,6 @@ REF = os.path.join(ROOT, 'reference')
 RES = os.path.join(ROOT, 'results')
 TOL = 1e-10
 THR_SHA256 = '575093dc994831f736ec9880d3ca5976b080b8748447811659ffef092ed6e6aa'
-PAPER_SEGMENTS = [(0, 140, 'free'), (140, 374, 'directed'), (374, 720, 'free')]
 checks = []
 
 
@@ -50,8 +51,8 @@ def sha256(path):
 def max_abs_diff(new, ref, cols):
     """Max |new - ref| over numeric columns (NaN positions must agree)."""
     worst = 0.0
-    for c_new, c_ref in cols:
-        x, y = new[c_new].to_numpy(float), ref[c_ref].to_numpy(float)
+    for c in cols:
+        x, y = new[c].to_numpy(float), ref[c].to_numpy(float)
         if not np.array_equal(np.isnan(x), np.isnan(y)):
             return np.inf
         m = ~np.isnan(x)
@@ -60,8 +61,9 @@ def max_abs_diff(new, ref, cols):
     return worst
 
 
-def bounds(df, s='start', e='end_exclusive', c='motion_class'):
-    return [(int(a), int(b), str(k)) for a, b, k in zip(df[s], df[e], df[c])]
+def bounds(df):
+    return [(int(a), int(b), str(k))
+            for a, b, k in zip(df.start, df.end_exclusive, df.motion_class)]
 
 
 def main():
@@ -82,7 +84,7 @@ def main():
 
     sys.path.insert(0, ROOT)
     import run_pipeline
-    out = run_pipeline.main(['--trackmate'])
+    seg = run_pipeline.main([])
     print()
 
     # 1. linking
@@ -91,34 +93,23 @@ def main():
     same_ids = (list(new.columns) == list(ref.columns) and len(new) == len(ref)
                 and all(np.array_equal(new[c], ref[c])
                         for c in ('TRACK_ID', 'SPOT_ID', 'FRAME', 'DETECTIONS', 'SPAN')))
-    d = max_abs_diff(new, ref, [(c, c) for c in ('X_um', 'Y_um', 'X_px', 'Y_px', 'INTENSITY',
-                                                 'LINK_COST', 'LINK_CONFIDENCE')])
+    d = max_abs_diff(new, ref, ['X_um', 'Y_um', 'X_px', 'Y_px', 'INTENSITY',
+                                'LINK_COST', 'LINK_CONFIDENCE'])
     record('linking: every spot assigned to the same track as in the original run',
            same_ids and d <= TOL,
            f'{new.TRACK_ID.nunique()} tracks, {len(new)} spots; max |diff| = {d:.1e}')
 
-    # 2. DC-MSS on the TrackMate track (figure input)
-    tm = out['trackmate']
-    fig = pd.read_csv(os.path.join(REF, 'figure3_segment_summary.csv'))
-    same_b = bounds(tm) == bounds(fig, 'start_min', 'end_min', 'cls')
-    d = max_abs_diff(tm, fig, [('mss_slope', 'mss_slope'), ('gen_D2_px2', 'D_px2_per_min'),
-                               ('conf_radius_px', 'conf_radius_px'),
-                               ('straightness', 'straightness'), ('Cu_lag1', 'Cu_lag1'),
-                               ('v_net_um_per_min', 'net_drift_um_per_min')])
-    record('DC-MSS, TrackMate track of particle A == figure3_revision values',
-           same_b and d <= TOL,
-           f'{bounds(tm)}; S_MSS {np.round(tm.mss_slope.to_numpy(), 3).tolist()}; '
+    # 2. DC-MSS on particle A
+    ref = pd.read_csv(os.path.join(REF, 'dcmss_segments_particleA.csv'))
+    num = [c for c in ref.columns if c != 'motion_class']
+    same_cols = list(seg.columns) == list(ref.columns) and len(seg) == len(ref)
+    d = max_abs_diff(seg, ref, num) if same_cols else np.inf
+    record('DC-MSS, particle A: same segments, classes and values as the paper',
+           same_cols and bounds(seg) == bounds(ref) and d <= TOL,
+           f'{bounds(seg)}; S_MSS {np.round(seg.mss_slope.to_numpy(), 3).tolist()}; '
            f'max |diff| = {d:.1e}')
 
-    # 3. DC-MSS on particle A from our linking
-    lk = out['linked']
-    ok = bounds(lk) == PAPER_SEGMENTS
-    dS = np.abs(lk.mss_slope.to_numpy() - tm.mss_slope.to_numpy()) if ok else [np.nan]
-    record('DC-MSS, particle A from this linking: same segments/classes as the paper',
-           ok, f'{bounds(lk)}; S_MSS {np.round(lk.mss_slope.to_numpy(), 3).tolist()} '
-               f'(max |S_MSS - TrackMate| = {np.max(dS):.4f})')
-
-    # 4. thresholds
+    # 3. thresholds
     shipped = os.path.join(ROOT, 'data', 'thr_sig0.14_lf3.npz')
     record('threshold table sha256', sha256(shipped) == THR_SHA256, sha256(shipped)[:16] + '...')
     if a.regen_thresholds:

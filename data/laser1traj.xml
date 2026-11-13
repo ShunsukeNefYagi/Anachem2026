@@ -11198,7 +11198,7 @@ Saving data...</Log>
     <FilteredTracks />
   </Model>
   <Settings>
-    <ImageData filename="laser1traj.tif" folder="\\TRUENAS\Share\Yagi\_data\2026\snano\20260407_009\laser1traj\" width="1431" height="1431" nslices="1" nframes="720" pixelwidth="1.0" pixelheight="1.0" voxeldepth="1.0" timeinterval="1.0" />
+    <ImageData filename="laser1traj.tif" folder="" width="1431" height="1431" nslices="1" nframes="720" pixelwidth="1.0" pixelheight="1.0" voxeldepth="1.0" timeinterval="1.0" />
     <BasicSettings xstart="0" xend="1430" ystart="0" yend="1430" zstart="0" zend="0" tstart="0" tend="719" />
     <DetectorSettings DETECTOR_NAME="LOG_DETECTOR" TARGET_CHANNEL="1" THRESHOLD="0.4948548546793905" RADIUS="6.5" DO_SUBPIXEL_LOCALIZATION="true" DO_MEDIAN_FILTERING="true" />
     <InitialSpotFilter feature="QUALITY" value="0.0" isabove="true" />
