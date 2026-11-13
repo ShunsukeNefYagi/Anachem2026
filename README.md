@@ -46,6 +46,12 @@ reference/               outputs of the original analysis run, for verification
 The raw image stack (2.9 GB) is not included; it is available from the authors on
 request.
 
+## Citation
+
+If you use this code, please cite the paper above. Citation metadata is in
+[`CITATION.cff`](CITATION.cff) (GitHub's "Cite this repository" button).
+
 ## License
 
-To be added.
+[MIT](LICENSE) © 2026 Shunsuke Yagi, Shinjiro Takano, Ryo Nishiyama,
+Ryosuke Oketani, Tatsuya Tsukuda, Kotaro Hiramatsu

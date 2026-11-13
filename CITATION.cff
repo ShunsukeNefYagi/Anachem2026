@@ -1,0 +1,96 @@
+cff-version: 1.2.0
+message: >-
+  If you use this software, please cite both the software itself and the
+  paper it accompanies (see `preferred-citation`).
+title: >-
+  Trajectory analysis code for long-term NIR single-particle tracking with
+  Au42 gold quantum needles
+abstract: >-
+  Analysis code accompanying the study of long-term near-infrared
+  single-particle tracking with atomically precise gold quantum needles
+  Au42(PET)32. Links per-frame TrackMate detections into trajectories using a
+  displacement and intensity cost, and segments and classifies the motion of
+  the tracked particle by DC-MSS (divide-and-conquer moment scaling spectrum),
+  including the Monte-Carlo generation of the classification thresholds and a
+  script that checks the results against the published values.
+type: software
+version: 2.0.0
+date-released: "2026-11-13"
+license: MIT
+repository-code: "https://github.com/ShunsukeNefYagi/Anachem2026"
+keywords:
+  - single-particle tracking
+  - SPT
+  - particle linking
+  - DC-MSS
+  - moment scaling spectrum
+  - near-infrared imaging
+  - gold nanocluster
+  - intracellular transport
+authors:
+  - family-names: Yagi
+    given-names: Shunsuke
+    affiliation: "Department of Chemistry, Kyushu University, Fukuoka 819-0395, Japan"
+  - family-names: Takano
+    given-names: Shinjiro
+    affiliation: "Department of Chemistry, Graduate School of Science, The University of Tokyo, Tokyo 113-0033, Japan"
+  - family-names: Nishiyama
+    given-names: Ryo
+    affiliation: "Department of Chemistry, Kyushu University, Fukuoka 819-0395, Japan"
+  - family-names: Oketani
+    given-names: Ryosuke
+    affiliation: "Department of Chemistry, Kyushu University, Fukuoka 819-0395, Japan"
+  - family-names: Tsukuda
+    given-names: Tatsuya
+    affiliation: "Department of Chemistry, Graduate School of Science, The University of Tokyo, Tokyo 113-0033, Japan"
+  - family-names: Hiramatsu
+    given-names: Kotaro
+    affiliation: "Department of Chemistry, Kyushu University, Fukuoka 819-0395, Japan"
+
+preferred-citation:
+  type: article
+  title: >-
+    Long-term single-particle tracking by NIR imaging using Au42 (gold)
+    quantum needles
+  doi: "10.64898/2026.06.24.734378"
+  url: "https://www.biorxiv.org/content/10.64898/2026.06.24.734378v1"
+  journal: bioRxiv
+  year: 2026
+  month: 6
+  authors:
+    - family-names: Yagi
+      given-names: Shunsuke
+    - family-names: Takano
+      given-names: Shinjiro
+    - family-names: Nishiyama
+      given-names: Ryo
+    - family-names: Oketani
+      given-names: Ryosuke
+    - family-names: Tsukuda
+      given-names: Tatsuya
+    - family-names: Hiramatsu
+      given-names: Kotaro
+
+references:
+  - type: article
+    title: >-
+      Multistep Track Segmentation and Motion Classification for Transient
+      Mobility Analysis
+    doi: "10.1016/j.bpj.2018.01.012"
+    journal: Biophysical Journal
+    volume: "114"
+    start: 1018
+    end: 1025
+    year: 2018
+    notes: >-
+      Source of the DC-MSS method reimplemented in src/mss_core.py and
+      src/dcmss_analysis.py.
+    authors:
+      - family-names: Vega
+        given-names: Anthony R.
+      - family-names: Freeman
+        given-names: Spencer A.
+      - family-names: Grinstein
+        given-names: Sergio
+      - family-names: Jaqaman
+        given-names: Khuloud
