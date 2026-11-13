@@ -13,8 +13,8 @@ Result for particle A (1 frame = 1 min, 720 frames):
 
 | Segment (min) | Class | S_MSS |
 |---|---|---|
-| 0–140 | free (diffusive) | 0.568 |
-| 140–374 | **directed** | 0.689 |
+| 0–139 | free (diffusive) | 0.568 |
+| 140–373 | **directed** | 0.689 |
 | 374–720 | free (diffusive) | 0.458 |
 
 DC-MSS follows Vega et al., *Biophys. J.* **114**, 1018–1025 (2018),
