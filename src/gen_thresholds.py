@@ -1,5 +1,11 @@
 """Δt = 1 min のデータ向けに MSS 分類閾値を作り直す。
 
+    python src/gen_thresholds.py      (~7 min; writes results/calibration/*.npz)
+
+The paper uses thr_sig0.14_lf3.npz (shipped as data/thr_sig0.14_lf3.npz).  All
+eight tables are generated because the random-number stream is shared between
+them: generating only one would not reproduce it.
+
 論文 (Vega et al. 2018) の閾値は
   - segment duration 20-500 frames
   - tau_max = N/4 (30 frames で cap)
@@ -18,7 +24,7 @@ minimum segment length を短くしたい。segment length を変えると MSS s
 import numpy as np, time, sys, os, json
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(os.path.dirname(HERE))
+ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 from mss_core import (sim_immobile, sim_confined, sim_free, sim_directed,
                       add_localization_noise, MOMENT_ORDERS)
